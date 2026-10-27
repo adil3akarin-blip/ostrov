@@ -907,6 +907,7 @@ button.sky-chip { cursor: pointer; }
 }
 .toast.show { opacity: 1; transform: translate(-50%, 0); }
 .toast.level { background: var(--xp); color: #2A1700; }
+.toast.warn { background: #B4380B; color: #FFFFFF; }
 .xp-float {
   position: absolute; z-index: 45;
   font: 700 16px/1 var(--font-display);
@@ -957,6 +958,32 @@ button.sky-chip { cursor: pointer; }
 .demo-actions { display: grid; gap: 6px; }
 .demo-actions .btn { justify-content: flex-start; min-height: 42px; font-size: 14px; border-radius: 12px; }
 .demo-tip { font-size: 13px; color: var(--ink-2); line-height: 1.45; padding: 12px; border-radius: 14px; background: var(--surface-2); }
+
+/* ---------- Чистый лист и свои дела ---------- */
+.starters { display: flex; flex-wrap: wrap; gap: 6px; }
+.starters .chip { border: 0; cursor: pointer; min-height: 36px; padding: 0 12px; background: var(--surface-2); color: var(--ink); }
+.item-body {
+  display: grid; gap: 2px; min-width: 0;
+  padding: 6px 0; border: 0; background: none;
+  text-align: left; cursor: pointer;
+  -webkit-user-select: text; user-select: text;
+}
+.item-body .item-title, .item-body .item-sub { display: block; }
+.head-tools { display: inline-flex; align-items: center; gap: 10px; }
+.head-tools .btn { min-height: 36px; padding: 0 12px; gap: 4px; }
+.head-tools .btn svg, .section > .btn svg { width: 16px; height: 16px; }
+.btn.danger { color: #C2410C; }
+.btn.danger-fill { background: #B4380B; color: #FFFFFF; }
+.warn-line { font-size: 13.5px; color: var(--xp-ink); background: var(--xp-soft); padding: 10px 12px; border-radius: 12px; }
+.wd.before { opacity: .45; }
+.goal-name > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.onboarding .cb-body .field input { text-align: left; }
+
+/* Длинные слова и ссылки переносятся, а не растягивают экран вбок */
+.item-title, .item-sub, .ib-item p, .entry p, .now h2, .sheet h2, .quest-top h4, .quest-next b,
+.woop p, .step p, .parsed-row p, .tree-note, .tl-highlights span, .hero-greet, .memory h3, .skill p, .letter p {
+  overflow-wrap: anywhere;
+}
 
 /* ---------- Responsive (last, so it wins over panel rules above) ---------- */
 @media (max-width: 1180px) {

@@ -3,7 +3,6 @@
   'use strict';
 
   /* ---------- Примерные данные ---------- */
-  const USER = 'Адиль';
 
   const SPHERES = {
     health: { name: 'Здоровье', place: 'Лес', icon: '<path d="M12 21v-5"/><path d="M6 16h12L12 4z"/>' },
@@ -33,7 +32,6 @@
   };
   const BLOCKS = ['morning', 'day', 'evening'];
 
-  const SEASON = { num: 'V', name: 'Осень 2026', start: new Date(2026, 9, 5), end: new Date(2026, 11, 27) };
   const BOSS = { title: '10 км без остановки', target: 10, best: 6.2, bestDate: '24 октября', trainings: 9, plan: 24, finale: '27 декабря', reward: 'Новые кроссовки', judge: 'Ерлан' };
 
   const DAY_BASE = [
@@ -231,65 +229,209 @@
   const WD = ['воскресенье', 'понедельник', 'вторник', 'среда', 'четверг', 'пятница', 'суббота'];
   const WD_SHORT = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
   const MON = ['января', 'февраля', 'марта', 'апреля', 'мая', 'июня', 'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря'];
-  const NOW0 = new Date();
+  const MON_SHORT = ['янв', 'фев', 'мар', 'апр', 'мая', 'июн', 'июл', 'авг', 'сен', 'окт', 'ноя', 'дек'];
+  const LOCAL_HOST = /^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname);
+  // ?today=2026-12-30 работает только на localhost: так проверяем смену сезонов и долгие перерывы
+  const DATE_OVERRIDE = (function () {
+    const m = LOCAL_HOST && /[?&]today=(\d{4})-(\d{2})-(\d{2})/.exec(location.search);
+    if (!m) return null;
+    const now = new Date();
+    return new Date(+m[1], +m[2] - 1, +m[3], now.getHours(), now.getMinutes());
+  })();
+  const NOW0 = DATE_OVERRIDE || new Date();
   const TODAY = new Date(NOW0.getFullYear(), NOW0.getMonth(), NOW0.getDate());
-  const TODAY_KEY = TODAY.getFullYear() + '-' + (TODAY.getMonth() + 1) + '-' + TODAY.getDate();
+  function keyOf(d) { return d.getFullYear() + '-' + (d.getMonth() + 1) + '-' + d.getDate(); }
+  function dateOf(key) { const p = String(key).split('-'); return new Date(+p[0], +p[1] - 1, +p[2]); }
+  function addDays(d, n) { const x = new Date(d); x.setDate(x.getDate() + n); return x; }
+  // полночь к полночи; Math.round сглаживает сутки по 23 и 25 часов при переводе часов
+  function daysBetween(a, b) { return Math.round((b - a) / 864e5); }
+  function fmtDate(d) { return d.getDate() + ' ' + MON[d.getMonth()]; }
+  function fmtShort(d) { return d.getDate() + ' ' + MON_SHORT[d.getMonth()]; }
+  const TODAY_KEY = keyOf(TODAY);
   const IS_SUNDAY = TODAY.getDay() === 0;
-  const ANNIVERSARY = TODAY.getMonth() === 9 && TODAY.getDate() === 25;
+  const DEMO_START = '2025-10-25';
   const DAY_FIXED = (function () {
     const list = DAY_BASE.slice();
     if (IS_SUNDAY) list.splice(list.findIndex(function (i) { return i.id === 'reflect'; }), 0, REVIEW_ITEM);
     return list;
   })();
 
-  function seasonWeek() {
-    const w = Math.floor((TODAY - SEASON.start) / (7 * 864e5)) + 1;
-    return Math.min(12, Math.max(1, w));
+  /* Сезон: 12 недель с первого понедельника квартала, остаток квартала — межсезонье. */
+  const SEASON_NAMES = ['Зима', 'Весна', 'Лето', 'Осень'];
+  function seasonStart(y, q) {
+    const d = new Date(y, q * 3, 1);
+    d.setDate(1 + (8 - d.getDay()) % 7);
+    return d;
   }
-  function daysLeft() { return Math.max(0, Math.round((SEASON.end - TODAY) / 864e5)); }
+  function seasonOf(date) {
+    let y = date.getFullYear(), q = Math.floor(date.getMonth() / 3);
+    let start = seasonStart(y, q);
+    if (date < start) { if (--q < 0) { q = 3; y--; } start = seasonStart(y, q); }
+    const end = addDays(start, 83);
+    const next = q === 3 ? seasonStart(y + 1, 0) : seasonStart(y, q + 1);
+    const week = Math.floor(daysBetween(start, date) / 7) + 1;
+    return { idx: y * 4 + q, name: SEASON_NAMES[q] + ' ' + y, start: start, end: end, next: next, off: date > end, week: Math.min(12, week) };
+  }
+  function roman(n) {
+    const map = [[100, 'C'], [90, 'XC'], [50, 'L'], [40, 'XL'], [10, 'X'], [9, 'IX'], [5, 'V'], [4, 'IV'], [1, 'I']];
+    let s = '';
+    map.forEach(function (m) { while (n >= m[0]) { s += m[1]; n -= m[0]; } });
+    return s;
+  }
+  const SEASON = seasonOf(TODAY);
+  function seasonNum(se) { return roman(Math.max(1, se.idx - seasonOf(dateOf(S.startedAt)).idx + 1)); }
+  function seasonWeek() { return SEASON.week; }
+  function seasonLabel() { return SEASON.off ? 'межсезонье' : 'неделя ' + SEASON.week + ' из 12'; }
+  function daysLeft() { return Math.max(0, daysBetween(TODAY, SEASON.off ? SEASON.next : SEASON.end)); }
 
   /* ---------- Состояние ---------- */
-  const KEY = 'ostrov-prototype-v1';
-  function fresh() {
+  const KEY = 'ostrov-v2';
+  const OLD_KEY = 'ostrov-prototype-v1';
+  const DAY_KEY_RE = /^\d{4}-\d{1,2}-\d{1,2}$/;
+  let firstRun = false, brokenData = false, storageWarned = false, pendingComeback = 0;
+
+  // Чистый лист: уровень 1, ни одного дела, квеста или записи
+  function baseState(mode, name) {
     return {
-      v: 1, day: TODAY_KEY, xp: 1340, lvl: 12, xpToday: 0,
-      spheres: JSON.parse(JSON.stringify(SPHERE_START)),
-      done: {}, steps: {}, notes: {}, log: [],
-      best: BOSS.best, trainings: BOSS.trainings,
-      phase: 'auto', comebacks: 3, cheered: false, letter: '',
-      inbox: INBOX_SEED.map(function (t, i) { return { id: 'in' + i, text: t }; }),
-      later: LATER_SEED.map(function (t, i) { return { id: 'lt' + i, text: t }; }),
-      custom: [], fit: { energy: null, time: null }, inboxZero: false,
+      v: 2, mode: mode, name: name, startedAt: TODAY_KEY, day: TODAY_KEY,
+      xp: 0, lvl: 1, xpToday: 0,
+      spheres: SPHERE_KEYS.reduce(function (m, k) { m[k] = { lvl: 1, xp: 0, vitality: 0.72, idle: 0 }; return m; }, {}),
+      done: {}, steps: {}, notes: {}, log: [], journal: [], hist: {},
+      best: 0, trainings: 0, phase: 'auto', comebacks: 0, cheered: false, letter: '',
+      inbox: [], later: [], custom: [], quests: [],
+      fit: { energy: null, time: null }, inboxZero: false, ever: { firstDone: null, inboxZero: false },
     };
   }
+  // Пример: год на Острове, уровень 12, готовые квесты и привычки
+  function demoState(name) {
+    const s = baseState('demo', name);
+    s.startedAt = DEMO_START;
+    s.xp = 1340; s.lvl = 12;
+    s.spheres = JSON.parse(JSON.stringify(SPHERE_START));
+    s.best = BOSS.best; s.trainings = BOSS.trainings; s.comebacks = 3;
+    s.inbox = INBOX_SEED.map(function (t, i) { return { id: 'in' + i, text: t }; });
+    s.later = LATER_SEED.map(function (t, i) { return { id: 'lt' + i, text: t }; });
+    s.ever = { firstDone: DEMO_START, inboxZero: true };
+    return s;
+  }
+  function isDemo() { return S.mode === 'demo'; }
+
+  // Достраивает недостающие и чинит испорченные поля, чтобы старое или битое сохранение не роняло приложение
+  function normalize(s) {
+    const base = s.mode === 'demo' ? demoState(s.name) : baseState('clean', s.name);
+    // base остаётся нетронутым: из него берём исправные значения вместо испорченных
+    const out = Object.assign({}, base, s);
+    out.mode = out.mode === 'demo' ? 'demo' : 'clean';
+    out.name = typeof out.name === 'string' && out.name.trim() ? out.name.trim().slice(0, 24) : 'друг';
+    ['done', 'steps', 'notes', 'hist', 'fit', 'ever', 'spheres'].forEach(function (k) {
+      if (!out[k] || typeof out[k] !== 'object' || Array.isArray(out[k])) out[k] = base[k];
+    });
+    ['log', 'journal', 'inbox', 'later', 'custom', 'quests'].forEach(function (k) {
+      if (!Array.isArray(out[k])) out[k] = base[k];
+    });
+    SPHERE_KEYS.forEach(function (k) {
+      const b = base.spheres[k];
+      let sp = out.spheres[k];
+      if (!sp || typeof sp !== 'object') sp = out.spheres[k] = Object.assign({}, b);
+      ['lvl', 'xp', 'vitality', 'idle'].forEach(function (f) { if (typeof sp[f] !== 'number' || !isFinite(sp[f])) sp[f] = b[f]; });
+      sp.vitality = Math.min(1, Math.max(0, sp.vitality));
+    });
+    ['xp', 'lvl', 'xpToday', 'best', 'trainings', 'comebacks'].forEach(function (k) {
+      if (typeof out[k] !== 'number' || !isFinite(out[k])) out[k] = base[k];
+    });
+    out.lvl = Math.max(1, Math.floor(out.lvl));
+    if (out.phase !== 'auto' && !PHASES[out.phase]) out.phase = 'auto';
+    if (!DAY_KEY_RE.test(out.day)) out.day = TODAY_KEY;
+    if (!DAY_KEY_RE.test(out.startedAt)) out.startedAt = base.startedAt;
+    out.inbox = out.inbox.filter(function (x) { return x && x.id && typeof x.text === 'string'; });
+    out.later = out.later.filter(function (x) { return x && x.id && typeof x.text === 'string'; });
+    out.custom = out.custom.filter(function (c) {
+      return c && c.id && typeof c.title === 'string' && SPHERES[c.sphere] && BLOCKS.indexOf(c.block) >= 0 && SIZE_XP[c.size] && ENERGY[c.energy];
+    });
+    out.quests = out.quests.filter(function (q) {
+      return q && q.id && typeof q.title === 'string' && SPHERES[q.sphere] && q.woop && Array.isArray(q.steps) && q.steps.length;
+    });
+    out.v = 2;
+    return out;
+  }
+  function migrateV1(old) {
+    return Object.assign({}, old, { v: 2, mode: 'demo', name: 'Адиль', startedAt: DEMO_START });
+  }
+
+  // Закрывает прошлый день: история, летопись, зарастание сфер, перерыв
+  function rollover(s) {
+    if (s.day === TODAY_KEY) return s;
+    const gap = daysBetween(dateOf(s.day), TODAY);
+    if (gap <= 0) return s; // часы ушли назад: день не закрываем, ничего не теряем
+    const ids = Object.keys(s.done);
+    if (ids.length) s.hist[s.day] = ids;
+    else if (s.xpToday > 0) s.hist[s.day] = ['*'];
+    s.journal = s.log.map(function (e) { return Object.assign({ date: s.day }, e); }).concat(s.journal).slice(0, 800);
+    const touched = {};
+    s.log.forEach(function (e) { if (e.sphere) touched[e.sphere] = true; });
+    SPHERE_KEYS.forEach(function (k) {
+      const sp = s.spheres[k];
+      const idleDays = touched[k] ? gap - 1 : gap;
+      if (idleDays > 0) { sp.idle += idleDays; sp.vitality = Math.max(0.15, sp.vitality - 0.03 * idleDays); }
+    });
+    // разовые дела остаются, пока не сделаны; повторяющиеся живут всегда
+    s.custom = s.custom.filter(function (c) { return c.repeat || !s.done[c.id]; });
+    const keys = Object.keys(s.hist);
+    if (keys.length > 400) {
+      keys.sort(function (a, b) { return dateOf(a) - dateOf(b); }).slice(0, keys.length - 400).forEach(function (k) { delete s.hist[k]; });
+    }
+    if (gap >= 5 && (ids.length || s.journal.length || s.xpToday > 0)) pendingComeback = gap - 1;
+    s.day = TODAY_KEY; s.done = {}; s.log = []; s.xpToday = 0; s.notes = {}; s.cheered = false;
+    s.fit = { energy: null, time: null }; s.inboxZero = false;
+    return s;
+  }
+
   function load() {
+    let raw = null;
+    try { raw = localStorage.getItem(KEY); } catch (e) { raw = null; }
+    if (!raw) {
+      try {
+        const old = localStorage.getItem(OLD_KEY);
+        if (old) raw = JSON.stringify(migrateV1(JSON.parse(old)));
+      } catch (e) { raw = null; }
+    }
+    if (!raw) { firstRun = true; return baseState('clean', 'друг'); }
     try {
-      const raw = localStorage.getItem(KEY);
-      if (raw) {
-        const s = JSON.parse(raw);
-        if (s && s.v === 1) {
-          if (s.day !== TODAY_KEY) {
-            // несделанные дела из входящих переезжают на новый день
-            s.custom = (s.custom || []).filter(function (c) { return !(s.done || {})[c.id]; });
-            s.day = TODAY_KEY; s.done = {}; s.log = []; s.xpToday = 0; s.notes = {}; s.cheered = false;
-            s.fit = { energy: null, time: null }; s.inboxZero = false;
-          }
-          return Object.assign(fresh(), s);
-        }
-      }
-    } catch (e) { /* хранилище недоступно: работаем без него */ }
-    return fresh();
+      const s = JSON.parse(raw);
+      if (!s || typeof s !== 'object' || Array.isArray(s)) throw new Error('bad state');
+      return rollover(normalize(s));
+    } catch (e) {
+      // битое сохранение откладываем в сторону, а не стираем
+      try { localStorage.setItem(KEY + '-broken', raw); } catch (err) { /* нет места */ }
+      brokenData = true;
+      firstRun = true;
+      return baseState('clean', 'друг');
+    }
   }
   function save() {
-    try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) { /* не критично */ }
+    if (firstRun) return; // до выбора на первом экране ничего не пишем
+    try {
+      localStorage.setItem(KEY, JSON.stringify(S));
+    } catch (e) {
+      if (!storageWarned) {
+        storageWarned = true;
+        // показываем после праздничных уведомлений, иначе они перекроют предупреждение
+        setTimeout(function () {
+          toast('Прогресс не сохраняется: браузер запрещает хранить данные. Выйди из режима «Инкогнито» или освободи место', 'warn', 7000);
+        }, 1500);
+      }
+    }
   }
   let S = load();
+  // закрытие дня, починка и миграция сразу пишутся на диск, а не ждут первого действия
+  if (!firstRun) save();
   let tab = 'today';
   let focusFirst = null;
   let fitOpen = null;
   let ibTab = 'inbox';
   const skipped = new Set();
-  function day() { return DAY_FIXED.concat(S.custom); }
+  function day() { return (isDemo() ? DAY_FIXED : []).concat(S.custom); }
+  function quests() { return isDemo() ? QUESTS : S.quests; }
 
   /* ---------- Хелперы ---------- */
   const $ = function (s, r) { return (r || document).querySelector(s); };
@@ -337,7 +479,34 @@
   }
   function hourNow() { return S.phase === 'auto' ? new Date().getHours() : parseInt(PHASES[S.phase].clock, 10); }
   function needFor(lvl) { return 800 + 100 * lvl; }
-  function yearDays() { return 213 + (S.xpToday > 0 ? 1 : 0); }
+  function activeOn(key) { return key === TODAY_KEY ? S.xpToday > 0 : (S.hist[key] || []).length > 0; }
+  function doneOn(key, id) { return key === TODAY_KEY ? !!S.done[id] : (S.hist[key] || []).indexOf(id) >= 0; }
+  function yearDays() {
+    if (isDemo()) return 213 + (S.xpToday > 0 ? 1 : 0);
+    const y = String(TODAY.getFullYear()) + '-';
+    return Object.keys(S.hist).filter(function (k) { return k.indexOf(y) === 0 && k !== TODAY_KEY && activeOn(k); }).length + (S.xpToday > 0 ? 1 : 0);
+  }
+  function totalActiveDays() {
+    return Object.keys(S.hist).filter(function (k) { return k !== TODAY_KEY && activeOn(k); }).length + (S.xpToday > 0 ? 1 : 0);
+  }
+  function weekStart() { return addDays(TODAY, -((TODAY.getDay() + 6) % 7)); }
+  // Цели недели: в примере заданы, на своём острове — из повторяющихся дел
+  function weekGoals() {
+    if (isDemo()) {
+      return WEEK_BASE.map(function (g) { return { title: g.title, sphere: g.sphere, target: g.target, done: Math.min(g.target, weekDone(g)) }; });
+    }
+    const ws = weekStart();
+    return S.custom.filter(function (c) { return c.repeat; }).map(function (c) {
+      let n = 0;
+      for (let i = 0; i < 7; i++) {
+        const d = addDays(ws, i);
+        if (d > TODAY) break;
+        if (doneOn(keyOf(d), c.id)) n++;
+      }
+      const target = c.perWeek || 7;
+      return { title: c.title, sphere: c.sphere, target: target, done: Math.min(target, n) };
+    });
+  }
   function stateOf(v) {
     if (v >= 0.85) return { key: 'bloom', label: 'Цветёт' };
     if (v >= 0.65) return { key: 'grow', label: 'Растёт' };
@@ -359,6 +528,7 @@
   /* ---------- Механика ---------- */
   function gain(xp, sphere) {
     const firstToday = S.xpToday === 0;
+    if (!S.ever.firstDone) S.ever.firstDone = TODAY_KEY;
     S.xp += xp;
     S.xpToday += xp;
     let leveled = false;
@@ -392,9 +562,14 @@
     else if (r.firstToday) toast('День засчитан: ' + yearDays() + '-й в этом году');
   }
 
+  let lastToggle = { id: null, at: 0 };
   function toggleItem(id, anchor) {
     const it = day().find(function (i) { return i.id === id; });
     if (!it) return;
+    // двойной тап не должен тут же снимать только что поставленную отметку
+    const now = Date.now();
+    if (lastToggle.id === id && now - lastToggle.at < 700) return;
+    lastToggle = { id: id, at: now };
     const xp = SIZE_XP[it.size];
     if (S.done[id]) {
       delete S.done[id];
@@ -436,6 +611,7 @@
   }
   function nowPlan() {
     const p = phase();
+    if (!day().length) return { empty: true };
     const pending = day().filter(function (i) { return !S.done[i.id] && !skipped.has(i.id); });
     if (focusFirst) {
       const f = pending.find(function (i) { return i.id === focusFirst; });
@@ -474,9 +650,9 @@
       '<div class="island-host" data-view="today">' + fallbackIsland() + '</div>' +
       '<div class="hero-top">' +
         '<div><p class="hero-date">' + cap(WD[TODAY.getDay()]) + ', ' + TODAY.getDate() + ' ' + MON[TODAY.getMonth()] + '</p>' +
-        '<h1 class="hero-greet">' + PHASES[p].greet + ', ' + USER + '</h1>' +
-        '<p class="hero-meta"><span>' + PHASES[p].label + ' · ' + clockText() + '</span><span>Сезон ' + SEASON.num + ', неделя ' + seasonWeek() + ' из 12</span>' +
-        '<button class="sky-chip only-mobile" type="button" data-action="demo">Демо</button></p></div>' +
+        '<h1 class="hero-greet">' + PHASES[p].greet + ', ' + esc(S.name) + '</h1>' +
+        '<p class="hero-meta"><span>' + PHASES[p].label + ' · ' + clockText() + '</span><span>Сезон ' + seasonNum(SEASON) + ', ' + seasonLabel() + '</span>' +
+        '<button class="sky-chip only-mobile" type="button" data-action="demo">Настройки</button></p></div>' +
         '<button class="lvl" type="button" data-tab-go="island" aria-label="Уровень ' + S.lvl + ', открыть остров">' +
           '<svg viewBox="0 0 52 52" aria-hidden="true"><circle class="track" cx="26" cy="26" r="23" fill="none" stroke-width="3"/>' +
           '<circle class="fill" cx="26" cy="26" r="23" fill="none" stroke-width="3" stroke-linecap="round" stroke-dasharray="' + C.toFixed(1) + '" stroke-dashoffset="' + off.toFixed(1) + '"/></svg>' +
@@ -493,15 +669,15 @@
   }
 
   function questLine(it) {
-    if (!it.quest) return '';
+    if (!it.quest || !quests().some(function (q) { return q.id === it.quest; }) && it.quest !== 'boss') return '';
     if (it.quest === 'boss') {
       return '<button class="quest-line" type="button" data-tab-go="season" style="--c: var(--c-health)">' +
         '<span>Шаг к боссу сезона</span><b>' + BOSS.title + '</b><span class="ql-meta">тренировка ' + (S.trainings + 1) + ' из ' + BOSS.plan + '</span></button>';
     }
-    const q = QUESTS.find(function (x) { return x.id === it.quest; });
+    const q = quests().find(function (x) { return x.id === it.quest; });
     const pct = questPct(q);
     return '<button class="quest-line" type="button" data-quest="' + q.id + '" style="--c: var(--c-' + q.sphere + ')">' +
-      '<span>Квест сезона</span><b>' + q.title + '</b><span class="ql-meta">' + pct + '%</span>' +
+      '<span>Квест сезона</span><b>' + esc(q.title) + '</b><span class="ql-meta">' + pct + '%</span>' +
       '<span class="bar"><i style="width:' + pct + '%"></i></span></button>';
   }
 
@@ -540,10 +716,47 @@
     return '<p class="why">' + ic(I.ok, '') + '<span>Подходит: ' + parts.join(' · ') + '</span></p>';
   }
 
+  // Готовые привычки для чистого листа: одно касание, и дело в плане
+  const STARTERS = [
+    { title: '5 минут тишины', sphere: 'spirit', mins: 5, energy: 'low', block: 'morning', perWeek: 5, trigger: 'Перед тем как открыть телефон' },
+    { title: 'Прогулка 20 минут', sphere: 'health', mins: 20, energy: 'mid', block: 'day', perWeek: 5, trigger: 'После обеда' },
+    { title: '10 страниц книги', sphere: 'mind', mins: 15, energy: 'low', block: 'evening', perWeek: 5, trigger: 'Перед сном вместо ленты' },
+    { title: 'Позвонить близким', sphere: 'people', mins: 15, energy: 'mid', block: 'evening', perWeek: 3, trigger: 'По дороге домой' },
+    { title: 'Записать расходы', sphere: 'money', mins: 5, energy: 'low', block: 'evening', perWeek: 7, trigger: 'Когда приходит чек' },
+    { title: 'Вопрос дня', sphere: 'spirit', mins: 1, energy: 'low', block: 'evening', perWeek: 7, trigger: 'Перед сном, одна минута', kind: 'reflect' },
+  ];
+  function addCustom(o) {
+    const it = {
+      id: 'c' + Date.now() + Math.floor(Math.random() * 1000), block: o.block, title: o.title, sphere: o.sphere,
+      size: sizeForMins(o.mins), mins: o.mins, energy: o.energy, trigger: o.trigger || '', custom: true,
+      repeat: !!o.perWeek, perWeek: o.perWeek || 0,
+    };
+    if (o.kind) it.kind = o.kind;
+    S.custom.push(it);
+    return it;
+  }
+  function starterChips() {
+    const have = S.custom.map(function (c) { return c.title; });
+    const list = STARTERS.map(function (s, i) { return [s, i]; }).filter(function (x) { return have.indexOf(x[0].title) < 0; });
+    if (!list.length) return '';
+    return '<div class="starters">' + list.map(function (x) {
+      return '<button class="chip" type="button" data-starter="' + x[1] + '" style="--c: var(--c-' + x[0].sphere + ')"><i class="dot"></i>' + x[0].title + '</button>';
+    }).join('') + '</div>';
+  }
+
   function nowCard() {
     const plan = nowPlan();
     const fp = fitPicker();
     const pulse = '<span class="pulse"></span>';
+    if (plan.empty) {
+      return '<section class="now" style="--c: var(--xp)">' +
+        '<div class="now-top"><p class="now-label">' + pulse + 'С чего начнём</p></div>' +
+        '<h2>Добавь одно маленькое дело</h2>' +
+        '<p class="now-text">Начни с привычки на 5–15 минут. Остров подскажет, когда её сделать, и будет расти вместе с тобой.</p>' +
+        starterChips() +
+        '<div class="now-actions single"><button class="btn primary" type="button" data-action="new-item">Своё дело</button></div>' +
+      '</section>';
+    }
     if (plan.nofit) {
       const n = S.inbox.length;
       const what = [S.fit.time ? TIMES.find(function (t) { return t[0] === S.fit.time; })[1] : '', S.fit.energy ? 'при ' + ENERGY[S.fit.energy].long : ''].filter(Boolean).join(' ');
@@ -556,12 +769,12 @@
         '</div></section>';
     }
     if (plan.rest) {
-      const first = day().find(function (i) { return i.block === 'morning' && !S.done[i.id]; }) || day()[0];
+      const first = day().find(function (i) { return i.block === 'morning'; }) || day()[0];
       const when = hourNow() < 5 ? 'Утром' : 'Завтра';
       return '<section class="now" style="--c: var(--c-spirit)">' + nowHead(ic(I.moon, '') + 'Время отдыха', fp) +
         '<h2>Лучшее дело сейчас: лечь спать</h2>' +
         '<p class="now-text">Сон тоже прокачка. Он восстанавливает силы для завтрашних дел. Если силы ещё есть, выбери время выше, и я подберу дело.</p>' +
-        '<div class="next-line">' + ic(I.sparkle, '') + '<span>' + when + ' первым делом: <b>' + first.title + '</b></span></div>' +
+        (first ? '<div class="next-line">' + ic(I.sparkle, '') + '<span>' + when + ' первым делом: <b>' + esc(first.title) + '</b></span></div>' : '') +
       '</section>';
     }
     if (plan.allDone) {
@@ -589,7 +802,7 @@
     return '<section class="now" style="--c: var(--c-' + it.sphere + ')">' + nowHead(pulse + plan.label, fp) +
       '<h2>' + esc(it.title) + '</h2>' +
       (plan.fitted ? whyLine(it) : '') +
-      '<p class="trigger">' + ic(I.ifthen, '') + '<span><b>Если — то:</b> ' + esc(it.trigger) + '</span></p>' +
+      (it.trigger ? '<p class="trigger">' + ic(I.ifthen, '') + '<span><b>Если — то:</b> ' + esc(it.trigger) + '</span></p>' : '') +
       questLine(it) +
       '<div class="chips"><span class="chip"><i class="dot"></i>' + SPHERES[it.sphere].name + '</span>' +
         '<span class="chip xp">' + it.size + ' · +' + SIZE_XP[it.size] + ' XP</span>' +
@@ -613,16 +826,20 @@
     '</button></section>';
   }
 
+  function repeatText(it) {
+    if (!it.repeat) return it.custom ? 'Один раз, пока не сделаешь' : '';
+    return it.perWeek >= 7 ? 'Каждый день' : it.perWeek + ' раз в неделю';
+  }
   function itemRow(it, nowId) {
     const done = !!S.done[it.id];
     const sp = S.spheres[it.sphere];
     const wild = !done && stateOf(sp.vitality).key === 'wild';
-    const sub = wild ? '<p class="item-sub note">«' + SPHERES[it.sphere].place + '» зарастает: ' + sp.idle + ' дней без внимания</p>'
-                     : '<p class="item-sub">' + esc(it.trigger) + '</p>';
+    const sub = wild ? '<span class="item-sub note">«' + SPHERES[it.sphere].place + '» зарастает: ' + sp.idle + ' дней без внимания</span>'
+                     : '<span class="item-sub">' + esc(it.trigger || repeatText(it)) + '</span>';
     return '<li class="item' + (done ? ' done' : '') + (it.id === nowId ? ' is-now' : '') + '" style="--c: var(--c-' + it.sphere + ')">' +
       '<button class="check" type="button" data-check="' + it.id + '" aria-pressed="' + done + '" aria-label="' + (done ? 'Снять отметку: ' : 'Отметить: ') + esc(it.title) + '">' +
         '<span class="ring">' + ic(I.check, '') + '</span></button>' +
-      '<div><p class="item-title">' + esc(it.title) + '</p>' + sub + '</div>' +
+      '<button class="item-body" type="button" data-item="' + it.id + '"><span class="item-title">' + esc(it.title) + '</span>' + sub + '</button>' +
       '<div class="item-side"><span class="size">' + it.size + ' +' + SIZE_XP[it.size] + '</span></div>' +
     '</li>';
   }
@@ -631,74 +848,86 @@
     const p = phase();
     const plan = nowPlan();
     const nowId = plan.item ? plan.item.id : null;
+    const total = day().length;
     const doneCount = day().filter(function (i) { return S.done[i.id]; }).length;
-    const pct = Math.round(doneCount / day().length * 100);
+    const pct = total ? Math.round(doneCount / total * 100) : 0;
     const blocks = BLOCKS.map(function (b) {
       const items = day().filter(function (i) { return i.block === b; });
+      if (!items.length) return '';
       return '<div class="block' + (b === p ? ' is-current' : '') + '">' +
         '<div class="block-head"><span>' + PHASES[b].label + '</span><small>' + PHASES[b].range + '</small></div>' +
         '<ul style="list-style:none;margin:0;padding:0">' + items.map(function (i) { return itemRow(i, nowId); }).join('') + '</ul></div>';
     }).join('');
 
-    const wdIdx = (TODAY.getDay() + 6) % 7;
+    const ws = weekStart();
+    const started = dateOf(S.startedAt);
     const days = WD_SHORT.map(function (d, j) {
+      const date = addDays(ws, j);
+      const k = keyOf(date);
       let cls = 'wd';
-      if (j < wdIdx && WEEK_PATTERN[j]) cls += ' on';
-      if (j === wdIdx) { cls += ' today'; if (S.xpToday > 0) cls += ' on'; }
-      if (j > wdIdx) cls += ' future';
+      if (date > TODAY) cls += ' future';
+      else if (isDemo() ? (k === TODAY_KEY ? S.xpToday > 0 : WEEK_PATTERN[j]) : activeOn(k)) cls += ' on';
+      if (k === TODAY_KEY) cls += ' today';
+      if (!isDemo() && date < started) cls += ' before';
       return '<div class="' + cls + '"><span>' + d + '</span><i></i></div>';
     }).join('');
-    const goals = WEEK_BASE.map(function (g) {
-      const d = Math.min(g.target, weekDone(g));
+    const goalList = weekGoals();
+    const goals = goalList.map(function (g) {
       let pips = '';
-      for (let i = 0; i < g.target; i++) pips += '<i class="pip' + (i < d ? ' on' : '') + '"></i>';
-      return '<div class="goal' + (d >= g.target ? ' met' : '') + '" style="--c: var(--c-' + g.sphere + ')">' +
-        '<span class="goal-name"><i class="dot"></i>' + g.title + '</span><span class="pips" aria-hidden="true">' + pips + '</span>' +
-        '<span class="goal-count">' + d + ' из ' + g.target + '</span></div>';
+      for (let i = 0; i < g.target; i++) pips += '<i class="pip' + (i < g.done ? ' on' : '') + '"></i>';
+      return '<div class="goal' + (g.done >= g.target ? ' met' : '') + '" style="--c: var(--c-' + g.sphere + ')">' +
+        '<span class="goal-name"><i class="dot"></i><span>' + esc(g.title) + '</span></span><span class="pips" aria-hidden="true">' + pips + '</span>' +
+        '<span class="goal-count">' + g.done + ' из ' + g.target + '</span></div>';
     }).join('');
 
     return hero(p) + nowCard() + installCard() + inboxRow() +
       '<section class="section">' +
-        '<div class="section-head"><h3>План дня</h3><span class="aside">' + doneCount + ' из ' + day().length + ' · +' + S.xpToday + ' XP</span></div>' +
-        '<div class="day-progress"><span class="bar"><i style="width:' + pct + '%"></i></span></div>' +
-        blocks +
+        '<div class="section-head"><h3>План дня</h3><span class="head-tools"><span class="aside">' + doneCount + ' из ' + total + ' · +' + S.xpToday + ' XP</span>' +
+          '<button class="btn ghost small" type="button" data-action="new-item">' + ic(I.plus, '') + 'Добавить</button></span></div>' +
+        (total
+          ? '<div class="day-progress"><span class="bar"><i style="width:' + pct + '%"></i></span></div>' + blocks
+          : '<p class="ib-empty">План пока пуст. Добавь дело кнопкой выше или выбери привычку в карточке «С чего начнём».</p>') +
       '</section>' +
       '<section class="section">' +
-        '<div class="section-head"><h3>Неделя</h3><span class="aside">неделя ' + seasonWeek() + ' из 12</span></div>' +
+        '<div class="section-head"><h3>Неделя</h3><span class="aside">' + seasonLabel() + '</span></div>' +
         '<div class="weekdays">' + days + '</div>' +
-        '<div class="goals">' + goals + '</div>' +
-        '<p class="hint">Цели недели гибкие: важна сумма за неделю, а не серия подряд. Пропуск в среду ничего не сжёг.</p>' +
+        (goals
+          ? '<div class="goals">' + goals + '</div><p class="hint">Цели недели гибкие: важна сумма за неделю, а не серия подряд. Пропуск дня ничего не сжигает.</p>'
+          : '<p class="hint">Сделай дело повторяющимся, например «5 раз в неделю», и здесь появится его цель недели.</p>') +
       '</section>';
   }
 
   /* ---------- Экран «Сезон» ---------- */
   function viewSeason() {
-    const wk = seasonWeek();
+    const wk = SEASON.off ? 13 : seasonWeek();
+    const num = seasonNum(SEASON);
     let weeks = '';
-    for (let i = 1; i <= 13; i++) weeks += '<i class="wk' + (i === 13 ? ' off' : i < wk ? ' past' : i === wk ? ' cur' : '') + '"></i>';
-    const remaining = Math.max(0, BOSS.target - S.best);
-    const hpPct = remaining / BOSS.target * 100;
-    const quests = QUESTS.map(function (q) {
+    for (let i = 1; i <= 13; i++) weeks += '<i class="wk' + (i === 13 ? (wk === 13 ? ' cur' : ' off') : i < wk ? ' past' : i === wk ? ' cur' : '') + '"></i>';
+    const list = quests();
+    const questCards = list.map(function (q) {
       const pct = questPct(q);
       const nextIdx = q.steps.findIndex(function (s, i) { return !stepDone(q, i); });
       const next = nextIdx >= 0 ? q.steps[nextIdx].t : 'Все шаги пройдены';
       return '<button class="quest" type="button" data-quest="' + q.id + '" style="--c: var(--c-' + q.sphere + ')">' +
         '<div class="quest-top"><span class="glyph">' + ic(SPHERES[q.sphere].icon, '') + '</span>' +
-          '<div><h4>' + q.title + '</h4><p>' + SPHERES[q.sphere].name + '</p></div><span class="quest-pct">' + pct + '%</span></div>' +
+          '<div><h4>' + esc(q.title) + '</h4><p>' + SPHERES[q.sphere].name + '</p></div><span class="quest-pct">' + pct + '%</span></div>' +
         '<span class="bar"><i style="width:' + pct + '%"></i></span>' +
-        '<p class="quest-next"><span>Дальше:</span><b>' + next + '</b></p>' +
+        '<p class="quest-next"><span>Дальше:</span><b>' + esc(next) + '</b></p>' +
       '</button>';
     }).join('');
-    const doneCount = day().filter(function (i) { return S.done[i.id]; }).length;
+    const canAdd = !isDemo() && list.length < 3;
+    const questSection = '<section class="section">' +
+      '<div class="section-head"><h3>Квесты сезона</h3><span class="aside">' + (isDemo() ? '3 главных' : list.length + ' из 3') + '</span></div>' +
+      (list.length ? questCards : '<p class="ib-empty">Выбери до трёх главных квестов на сезон. У каждого будет препятствие и план «если — то», а шаги покажут прогресс.</p>') +
+      (canAdd ? '<button class="btn ghost" type="button" data-action="new-quest">' + ic(I.plus, '') + 'Новый квест</button>' : '') +
+    '</section>';
 
-    return '<header class="page-head">' +
-        '<p class="eyebrow">Сезон ' + SEASON.num + ' · ' + SEASON.name + '</p>' +
-        '<h1>Неделя ' + wk + ' из 12</h1>' +
-        '<p class="sub">5 октября — 27 декабря · осталось ' + daysLeft() + ' дн.</p>' +
-        '<div class="weeks" aria-hidden="true">' + weeks + '</div>' +
-        '<div class="weeks-legend"><span>Старт</span><span>Финальная битва</span><span>Межсезонье</span></div>' +
-      '</header>' +
-      '<section class="boss">' +
+    let boss = '', party;
+    if (isDemo()) {
+      const remaining = Math.max(0, BOSS.target - S.best);
+      const hpPct = remaining / BOSS.target * 100;
+      const doneCount = day().filter(function (i) { return S.done[i.id]; }).length;
+      boss = '<section class="boss">' +
         '<svg class="boss-ridge" viewBox="0 0 300 120" aria-hidden="true"><polygon points="0,120 40,70 70,90 120,30 160,75 190,55 230,95 260,60 300,85 300,120" fill="#fff"/></svg>' +
         '<p class="eyebrow">Босс сезона · ' + SPHERES.health.name + '</p>' +
         '<h2>' + BOSS.title + '</h2>' +
@@ -707,26 +936,42 @@
         '<div class="boss-stats">' +
           '<div><b>' + dec(S.best) + ' км</b><span>лучший забег</span></div>' +
           '<div><b>' + S.trainings + ' / ' + BOSS.plan + '</b><span>тренировок</span></div>' +
-          '<div><b>' + BOSS.finale.split(' ')[0] + ' дек</b><span>финальная битва</span></div>' +
+          '<div><b>' + fmtShort(SEASON.end) + '</b><span>финальная битва</span></div>' +
         '</div>' +
         '<p class="boss-foot">Каждый забег длиннее рекорда снимает HP. Награда: <b>' + BOSS.reward.toLowerCase() + '</b>, подтвердит ' + BOSS.judge + '.</p>' +
-      '</section>' +
-      '<section class="section">' +
-        '<div class="section-head"><h3>Квесты сезона</h3><span class="aside">3 главных</span></div>' + quests +
-      '</section>' +
-      '<section class="section">' +
+      '</section>';
+      party = '<section class="section">' +
         '<div class="section-head"><h3>Пати «Ранний подъём»</h3><span class="aside">3 человека</span></div>' +
         '<div class="party">' +
           '<div class="member"><span class="ava">Е</span><div><p>Ерлан</p><span>Закрыл пробежку</span></div><span class="ok">4 из 6</span></div>' +
           '<div class="member"><span class="ava">А</span><div><p>Аружан</p><span>Английский готов</span></div><span class="ok">3 из 5</span></div>' +
-          '<div class="member"><span class="ava">' + USER.charAt(0) + '</span><div><p>Ты</p><span>' + (doneCount ? 'В деле' : 'Ещё не начал') + '</span></div><span class="ok">' + doneCount + ' из ' + day().length + '</span></div>' +
+          '<div class="member"><span class="ava">' + esc(S.name.charAt(0).toUpperCase()) + '</span><div><p>Ты</p><span>' + (doneCount ? 'В деле' : 'Ещё не начал') + '</span></div><span class="ok">' + doneCount + ' из ' + day().length + '</span></div>' +
           '<div class="reward"><b>Награда ждёт подтверждения</b><span>«' + BOSS.reward + '» за победу над боссом. Подтверждает ' + BOSS.judge + ', сам забрать нельзя.</span></div>' +
           '<button class="btn ghost small" type="button" data-action="cheer"' + (S.cheered ? ' disabled' : '') + '>' + (S.cheered ? 'Поддержка отправлена' : 'Поддержать пати') + '</button>' +
         '</div>' +
-      '</section>' +
+      '</section>';
+    } else {
+      party = '<section class="section"><div class="offseason"><h4>Пати</h4>' +
+        '<p>Скоро сюда можно будет позвать 2–5 близких: видеть прогресс друг друга и подтверждать награды. Пока остров только твой.</p></div></section>';
+    }
+
+    const offStart = addDays(SEASON.end, 1), offEnd = addDays(SEASON.next, -1);
+    const left = daysLeft();
+    const sub = SEASON.off
+      ? 'Сезон закончился ' + fmtDate(SEASON.end) + '. Следующий начнётся ' + fmtDate(SEASON.next) + (left === 1 ? ', завтра' : ', через ' + left + ' ' + daysWord(left))
+      : fmtDate(SEASON.start) + ' — ' + fmtDate(SEASON.end) + ' · ' + (left === 0 ? 'сегодня последний день' : 'осталось ' + left + ' ' + daysWord(left));
+
+    return '<header class="page-head">' +
+        '<p class="eyebrow">Сезон ' + num + ' · ' + SEASON.name + '</p>' +
+        '<h1>' + (SEASON.off ? 'Межсезонье' : 'Неделя ' + wk + ' из 12') + '</h1>' +
+        '<p class="sub">' + sub + '</p>' +
+        '<div class="weeks" aria-hidden="true">' + weeks + '</div>' +
+        '<div class="weeks-legend"><span>Старт</span><span>Финал</span><span>Межсезонье</span></div>' +
+      '</header>' +
+      boss + questSection + party +
       '<section class="section">' +
-        '<div class="offseason"><h4>Межсезонье · 28 декабря — 3 января</h4>' +
-        '<p>Неделя без новых целей: итоги сезона, отдых и план на сезон VI. Квесты нового сезона выбираются из списка «Потом».</p>' +
+        '<div class="offseason"><h4>Межсезонье · ' + fmtDate(offStart) + ' — ' + fmtDate(offEnd) + '</h4>' +
+        '<p>Неделя без новых целей: итоги сезона, отдых и план на следующий. Квесты нового сезона выбираются из списка «Потом».</p>' +
         '<button class="btn ghost small" type="button" data-action="later">Открыть «Потом» · ' + S.later.length + '</button></div>' +
       '</section>';
   }
@@ -774,39 +1019,89 @@
       (locked ? '<rect x="14" y="19" width="12" height="9" rx="2"/><path d="M16.5 19v-3a3.5 3.5 0 0 1 7 0v3"/>' : '<path d="M20 12l2.6 5.3 5.8.8-4.2 4.1 1 5.8-5.2-2.7-5.2 2.7 1-5.8-4.2-4.1 5.8-.8z"/>') +
       '</svg>';
   }
+  // Свои артефакты: открываются за реальные шаги, а закрытые показывают, как их получить
+  function cleanArtifacts() {
+    const list = [
+      { title: 'Первый шаг', got: !!S.ever.firstDone, meta: S.ever.firstDone ? fmtDate(dateOf(S.ever.firstDone)) : 'отметь первое дело', sphere: 'health' },
+      { title: 'Голова свободна', got: !!S.ever.inboxZero, meta: S.ever.inboxZero ? 'входящие разобраны до нуля' : 'разбери входящие до нуля', sphere: 'mind' },
+      { title: 'Неделя ритма', got: totalActiveDays() >= 7, meta: totalActiveDays() >= 7 ? '7 активных дней' : 'активных дней: ' + totalActiveDays() + ' из 7', sphere: 'work' },
+      { title: 'Возвращение', got: S.comebacks > 0, meta: S.comebacks > 0 ? 'вернулся после перерыва' : 'вернись после перерыва, это тоже достижение', sphere: 'spirit' },
+      { title: 'Первый квест', got: S.quests.some(function (q) { return questPct(q) === 100; }), meta: 'пройди все шаги одного квеста', sphere: 'money' },
+    ];
+    return list.map(function (a) {
+      return '<div class="artifact' + (a.got ? '' : ' locked') + '" style="--c: var(--c-' + a.sphere + ')">' + medal(!a.got) + '<h4>' + a.title + '</h4><p>' + esc(a.meta) + '</p></div>';
+    }).join('');
+  }
   function viewChronicle() {
+    const started = dateOf(S.startedAt);
+    const onIsland = daysBetween(started, TODAY);
+    const anniversary = onIsland >= 365 && started.getMonth() === TODAY.getMonth() && started.getDate() === TODAY.getDate();
     const today = S.log.length
       ? S.log.map(function (e) { return entryRow(e, true); }).join('')
       : '<div class="entry quiet"><time>сегодня</time><p>Пока пусто. Отметь первое дело, и день появится здесь.</p><span></span></div>';
-    const seasonEntries = SEASON_LOG.map(function (e) { return entryRow(e, false); }).join('');
-    const past = PAST_SEASONS.map(function (s) {
-      return '<div class="tl-season"><span class="tl-mark"></span><div class="tl-body">' +
-        '<div class="tl-title"><h4>' + s.title + '</h4><span class="badge">' + s.badge + '</span></div>' +
-        '<div class="tl-highlights">' + s.lines.map(function (l) { return '<span>' + l + '</span>'; }).join('') + '</div></div></div>';
-    }).join('');
-    const arts = ARTIFACTS.map(function (a) {
-      return '<div class="artifact" style="--c: var(--c-' + a.sphere + ')">' + medal(false) + '<h4>' + a.title + '</h4><p>' + a.meta + '</p></div>';
-    }).join('') +
-      (ANNIVERSARY ? '<div class="artifact fresh" style="--c: var(--xp)">' + medal(false) + '<h4>Год на Острове</h4><p>получен сегодня</p></div>' : '') +
-      '<div class="artifact locked">' + medal(true) + '<h4>10 км</h4><p>откроется после финальной битвы</p></div>';
-    const memTitle = ANNIVERSARY ? 'Ровно год назад ты пришёл на Остров' : 'Твой первый день на Острове';
+    // записи прошлых дней этого сезона из летописи
+    const inSeason = S.journal.filter(function (e) { return DAY_KEY_RE.test(e.date) && dateOf(e.date) >= SEASON.start; });
+    const seasonEntries = inSeason.map(function (e) { return entryRow(Object.assign({}, e, { date: fmtShort(dateOf(e.date)) }), false); }).join('') +
+      (isDemo() ? SEASON_LOG.map(function (e) { return entryRow(e, false); }).join('') : '');
 
-    return '<header class="page-head"><p class="eyebrow">Летопись</p><h1>' + (ANNIVERSARY ? 'Год на Острове' : 'Твоя история') + '</h1></header>' +
-      '<div class="counters">' +
-        '<div class="counter"><b>' + yearDays() + '</b><span>дней на Острове в ' + TODAY.getFullYear() + '</span></div>' +
-        '<div class="counter"><b>4</b><span>сезона пройдено</span></div>' +
-        '<div class="counter"><b>' + S.comebacks + '</b><span>возвращения после перерыва</span></div>' +
-      '</div>' +
-      '<article class="memory sky phase-evening">' +
-        '<p class="eyebrow">25 октября 2025</p><h3>' + memTitle + '</h3>' +
+    let past, arts, memory;
+    if (isDemo()) {
+      past = PAST_SEASONS.map(function (s) {
+        return '<div class="tl-season"><span class="tl-mark"></span><div class="tl-body">' +
+          '<div class="tl-title"><h4>' + s.title + '</h4><span class="badge">' + s.badge + '</span></div>' +
+          '<div class="tl-highlights">' + s.lines.map(function (l) { return '<span>' + l + '</span>'; }).join('') + '</div></div></div>';
+      }).join('');
+      arts = ARTIFACTS.map(function (a) {
+        return '<div class="artifact" style="--c: var(--c-' + a.sphere + ')">' + medal(false) + '<h4>' + a.title + '</h4><p>' + a.meta + '</p></div>';
+      }).join('') +
+        (anniversary ? '<div class="artifact fresh" style="--c: var(--xp)">' + medal(false) + '<h4>Год на Острове</h4><p>получен сегодня</p></div>' : '') +
+        '<div class="artifact locked">' + medal(true) + '<h4>10 км</h4><p>откроется после финальной битвы</p></div>';
+      memory = '<article class="memory sky phase-evening">' +
+        '<p class="eyebrow">' + fmtDate(started) + ' ' + started.getFullYear() + '</p><h3>' + (anniversary ? 'Ровно год назад ты пришёл на Остров' : 'Твой первый день на Острове') + '</h3>' +
         '<p>Первая пробежка: 2 км, три остановки. Сейчас твой рекорд ' + dec(S.best) + ' км без остановки.</p>' +
         '<div class="then-now"><div><b>2 км</b><span>тогда, с остановками</span></div><div><b>' + dec(S.best) + ' км</b><span>сейчас, без остановки</span></div></div>' +
-      '</article>' +
+      '</article>';
+    } else {
+      // прошлые сезоны собираются из летописи
+      const bySeason = {};
+      S.journal.forEach(function (e) {
+        if (!DAY_KEY_RE.test(e.date)) return;
+        const se = seasonOf(dateOf(e.date));
+        if (se.idx >= SEASON.idx) return;
+        const b = bySeason[se.idx] || (bySeason[se.idx] = { se: se, days: {}, n: 0 });
+        b.days[e.date] = true;
+        b.n++;
+      });
+      past = Object.keys(bySeason).sort(function (a, b) { return b - a; }).map(function (k) {
+        const b = bySeason[k];
+        return '<div class="tl-season"><span class="tl-mark"></span><div class="tl-body">' +
+          '<div class="tl-title"><h4>Сезон ' + seasonNum(b.se) + ' · ' + b.se.name + '</h4></div>' +
+          '<div class="tl-highlights"><span>Активных дней: ' + Object.keys(b.days).length + '</span><span>Записей в летописи: ' + b.n + '</span></div></div></div>';
+      }).join('');
+      arts = cleanArtifacts();
+      memory = '<article class="memory sky phase-evening">' +
+        '<p class="eyebrow">' + fmtDate(started) + ' ' + started.getFullYear() + '</p>' +
+        (onIsland === 0
+          ? '<h3>Сегодня твой первый день на Острове</h3><p>Через год здесь будет видно, каким ты был сегодня и насколько вырос.</p>'
+          : anniversary
+            ? '<h3>Ровно год назад ты пришёл на Остров</h3><p>Загляни в письмо и в прошлые сезоны: это и есть твой рост.</p>'
+            : '<h3>Ты на Острове ' + onIsland + ' дн.</h3><p>Летопись копит всё, что ты делаешь. Чем дольше, тем ценнее она становится.</p>') +
+      '</article>';
+    }
+    const seasonsDone = Math.max(0, SEASON.idx - seasonOf(started).idx);
+
+    return '<header class="page-head"><p class="eyebrow">Летопись</p><h1>' + (anniversary ? 'Год на Острове' : 'Твоя история') + '</h1></header>' +
+      '<div class="counters">' +
+        '<div class="counter"><b>' + yearDays() + '</b><span>дней на Острове в ' + TODAY.getFullYear() + '</span></div>' +
+        '<div class="counter"><b>' + seasonsDone + '</b><span>сезонов пройдено</span></div>' +
+        '<div class="counter"><b>' + S.comebacks + '</b><span>возвращений после перерыва</span></div>' +
+      '</div>' +
+      memory +
       '<section class="section">' +
         '<div class="section-head"><h3>Хроника</h3><span class="aside">новое сверху</span></div>' +
         '<div class="timeline">' +
           '<div class="tl-season current"><span class="tl-mark"></span><div class="tl-body">' +
-            '<div class="tl-title"><h4>Сезон ' + SEASON.num + ' · ' + SEASON.name + '</h4><span class="badge">идёт</span></div>' +
+            '<div class="tl-title"><h4>Сезон ' + seasonNum(SEASON) + ' · ' + SEASON.name + '</h4><span class="badge">' + (SEASON.off ? 'межсезонье' : 'идёт') + '</span></div>' +
             '<div class="tl-entries">' + today + seasonEntries + '</div></div></div>' +
           past +
         '</div>' +
@@ -818,7 +1113,7 @@
       '<section class="section">' +
         '<div class="letter"><h4>Письмо себе через год</h4>' +
         (S.letter
-          ? '<p>Письмо запечатано. Остров откроет его 25 октября ' + (TODAY.getFullYear() + 1) + '.</p>'
+          ? '<p>Письмо запечатано. Остров откроет его ' + fmtDate(addDays(TODAY, 365)) + ' ' + (TODAY.getFullYear() + 1) + '.</p>'
           : '<p>Напиши, каким хочешь быть через год. Остров откроет письмо в этот день в ' + (TODAY.getFullYear() + 1) + ' году.</p><button class="btn ghost small" type="button" data-action="letter">Написать письмо</button>') +
         '</div>' +
       '</section>';
@@ -849,45 +1144,60 @@
   function openFocus(id) {
     const it = day().find(function (i) { return i.id === id; });
     if (!it) return;
-    const total = it.mins * 60;
-    let left = total, paused = false, timer = null;
+    const total = it.mins * 60 * 1000;
+    // время считаем по часам, а не по тикам: телефон в кармане замораживает таймеры страницы
+    let endAt = Date.now() + total, pausedLeft = null, timer = null, finished = false;
     const C = 2 * Math.PI * 96;
+    function leftMs() { return pausedLeft !== null ? pausedLeft : Math.max(0, endAt - Date.now()); }
     openSheet(
       '<p class="eyebrow">Поток · ' + SPHERES[it.sphere].name + '</p>' +
-      '<h2>' + it.title + '</h2>' +
+      '<h2>' + esc(it.title) + '</h2>' +
       '<div class="focus-ring" style="--c: var(--c-' + it.sphere + ')"><svg viewBox="0 0 220 220" aria-hidden="true">' +
         '<circle class="track" cx="110" cy="110" r="96" fill="none" stroke-width="10"/>' +
         '<circle class="fill" cx="110" cy="110" r="96" fill="none" stroke-width="10" stroke-linecap="round" stroke-dasharray="' + C.toFixed(1) + '" stroke-dashoffset="0"/></svg>' +
-        '<div class="time"><b id="focusTime">' + mmss(left) + '</b><span>осталось</span></div></div>' +
+        '<div class="time"><b id="focusTime">' + mmss(it.mins * 60) + '</b><span id="focusSub">осталось</span></div></div>' +
       '<p class="lead">Телефон в беззвучный режим. Всё остальное подождёт ' + it.mins + ' мин.</p>' +
       '<div class="sheet-actions two"><button class="btn ghost" type="button" id="focusPause">Пауза</button>' +
       '<button class="btn primary" type="button" id="focusDone">Готово · +' + SIZE_XP[it.size] + ' XP</button></div>',
       function (sheet) {
-        const timeEl = $('#focusTime', sheet), ring = $('.fill', sheet);
-        timer = setInterval(function () {
-          if (paused || left <= 0) return;
-          left--;
-          timeEl.textContent = mmss(left);
-          ring.style.strokeDashoffset = (C * (1 - left / total)).toFixed(1);
-        }, 1000);
+        const timeEl = $('#focusTime', sheet), subEl = $('#focusSub', sheet), ring = $('.fill', sheet);
+        function draw() {
+          const ms = leftMs();
+          timeEl.textContent = mmss(Math.ceil(ms / 1000));
+          ring.style.strokeDashoffset = (C * (1 - ms / total)).toFixed(1);
+          if (ms <= 0 && !finished) {
+            finished = true;
+            subEl.textContent = 'время вышло';
+            if (navigator.vibrate) navigator.vibrate([120, 80, 120]);
+          }
+        }
+        timer = setInterval(draw, 500);
+        document.addEventListener('visibilitychange', draw);
+        sheet._focusDraw = draw;
         $('#focusPause', sheet).addEventListener('click', function (e) {
-          paused = !paused;
-          e.currentTarget.textContent = paused ? 'Продолжить' : 'Пауза';
+          if (pausedLeft === null) { pausedLeft = leftMs(); e.currentTarget.textContent = 'Продолжить'; }
+          else { endAt = Date.now() + pausedLeft; pausedLeft = null; e.currentTarget.textContent = 'Пауза'; }
+          draw();
         });
         $('#focusDone', sheet).addEventListener('click', function (e) {
           const btn = e.currentTarget;
           closeSheet();
-          toggleItem(id, null);
+          if (!S.done[id]) toggleItem(id, null);
           xpFloatAt(btn, '+' + SIZE_XP[it.size]);
         });
       },
-      function () { clearInterval(timer); }
+      function () {
+        clearInterval(timer);
+        const sh = $('#sheetLayer .sheet');
+        if (sh && sh._focusDraw) document.removeEventListener('visibilitychange', sh._focusDraw);
+      }
     );
   }
   function mmss(s) { return String(Math.floor(s / 60)).padStart(2, '0') + ':' + String(s % 60).padStart(2, '0'); }
 
   function openReflect(id) {
     const it = day().find(function (i) { return i.id === id; });
+    if (!it) return;
     const q = it.id === 'review' ? REVIEW_QUESTION : QUESTIONS[TODAY.getDate() % QUESTIONS.length];
     openSheet(
       '<p class="eyebrow">' + it.title + '</p><h2>' + q + '</h2>' +
@@ -940,34 +1250,50 @@
   }
 
   function openQuest(id) {
-    const q = QUESTS.find(function (x) { return x.id === id; });
+    const q = quests().find(function (x) { return x.id === id; });
     if (!q) return;
     const pct = questPct(q);
     const steps = q.steps.map(function (s, i) {
       const done = stepDone(q, i);
       return '<div class="step' + (done ? ' done' : '') + '" style="--c: var(--c-' + q.sphere + ')">' +
-        '<button class="check" type="button" data-step="' + q.id + ':' + i + '" aria-pressed="' + done + '" aria-label="' + s.t + '"><span class="ring">' + ic(I.check, '') + '</span></button>' +
-        '<p>' + s.t + '</p><span>' + (done ? 'готово' : s.label || '') + '</span></div>';
+        '<button class="check" type="button" data-step="' + q.id + ':' + i + '" aria-pressed="' + done + '" aria-label="' + esc(s.t) + '"><span class="ring">' + ic(I.check, '') + '</span></button>' +
+        '<p>' + esc(s.t) + '</p><span>' + (done ? 'готово' : s.label || '') + '</span></div>';
     }).join('');
     openSheet(
       '<div class="sheet-head" style="--c: var(--c-' + q.sphere + ')"><span class="glyph">' + ic(SPHERES[q.sphere].icon, '') + '</span>' +
-        '<div><p class="eyebrow">Квест сезона · ' + SPHERES[q.sphere].name + '</p><h2>' + q.title + '</h2></div></div>' +
+        '<div><p class="eyebrow">Квест сезона · ' + SPHERES[q.sphere].name + '</p><h2>' + esc(q.title) + '</h2></div></div>' +
       '<div style="display:grid;gap:8px;--c: var(--c-' + q.sphere + ')"><div class="section-head" style="padding:0"><span class="aside" style="text-align:left">Прогресс</span><span class="aside"><b>' + pct + '%</b></span></div>' +
         '<span class="bar"><i style="width:' + pct + '%"></i></span></div>' +
       '<div class="woop" style="--c: var(--c-' + q.sphere + ')">' +
-        '<div><span>Желание</span><p>' + q.woop.wish + '</p></div>' +
-        '<div><span>Результат</span><p>' + q.woop.outcome + '</p></div>' +
-        '<div class="wide"><span>Что помешает</span><p>' + q.woop.obstacle + '</p></div>' +
-        '<div class="wide"><span>План «если — то»</span><p>' + q.woop.plan + '</p></div>' +
+        '<div><span>Желание</span><p>' + esc(q.woop.wish) + '</p></div>' +
+        '<div><span>Результат</span><p>' + esc(q.woop.outcome) + '</p></div>' +
+        '<div class="wide"><span>Что помешает</span><p>' + esc(q.woop.obstacle) + '</p></div>' +
+        '<div class="wide"><span>План «если — то»</span><p>' + esc(q.woop.plan) + '</p></div>' +
       '</div>' +
       '<div class="section-head" style="padding:0"><h3>Шаги</h3><span class="aside">отмечай по мере движения</span></div>' +
-      '<div class="steps">' + steps + '</div>'
+      '<div class="steps">' + steps + '</div>' +
+      (isDemo() ? '' : '<div class="sheet-actions"><button class="btn text danger" type="button" id="questDel">Удалить квест</button></div>'),
+      function (sheet) {
+        const del = $('#questDel', sheet);
+        if (!del) return;
+        let armed = false;
+        del.addEventListener('click', function () {
+          if (!armed) { armed = true; del.textContent = 'Точно удалить? Прогресс квеста пропадёт'; return; }
+          S.quests = S.quests.filter(function (x) { return x.id !== q.id; });
+          Object.keys(S.steps).forEach(function (k) { if (k.indexOf(q.id + ':') === 0) delete S.steps[k]; });
+          save();
+          closeSheet();
+          toast('Квест удалён');
+          render(true);
+        });
+      }
     );
   }
 
   function toggleStep(key, anchor) {
     const parts = key.split(':');
-    const q = QUESTS.find(function (x) { return x.id === parts[0]; });
+    const q = quests().find(function (x) { return x.id === parts[0]; });
+    if (!q) return;
     const i = +parts[1];
     const was = stepDone(q, i);
     S.steps[key] = !was;
@@ -993,7 +1319,7 @@
       wild: 'Зарастает: ' + sp.idle + ' дней без внимания. Ничего не потеряно, одно действие вернёт цвет.',
     }[st.key];
     const action = day().find(function (i) { return i.sphere === k && !S.done[i.id]; });
-    const skills = SKILLS[k].map(function (s) {
+    const skills = !isDemo() ? '' : SKILLS[k].map(function (s) {
       const ri = RANKS.indexOf(s.rank);
       return '<div class="skill" style="--c: var(--c-' + k + ')"><span class="rank">' + s.rank + '</span><div>' +
         '<h4>' + s.name + '</h4><p>Сейчас: ' + s.now + '</p><p>Ранг ' + RANKS[Math.min(4, ri + 1)] + ': <b>' + s.next + '</b></p>' +
@@ -1006,9 +1332,12 @@
       '<div class="sphere-state" style="--c: var(--c-' + k + ')"><span class="state ' + st.key + '">' + st.label + '</span><p>' + msg + '</p>' +
         '<div class="row"><span>Уровень ' + sp.lvl + '</span><span>' + sp.xp + ' / ' + SPHERE_NEED + ' XP</span></div>' +
         '<span class="bar"><i style="width:' + Math.round(sp.xp / SPHERE_NEED * 100) + '%"></i></span></div>' +
-      '<div class="section-head" style="padding:0"><h3>Навыки и ранги</h3><span class="aside">D → S</span></div>' +
-      '<div class="skills">' + skills + '</div>' +
-      (action ? '<div class="sheet-actions"><button class="btn primary" type="button" data-focus-item="' + action.id + '">Сделать сейчас: ' + action.title.toLowerCase() + '</button></div>' : '')
+      (skills
+        ? '<div class="section-head" style="padding:0"><h3>Навыки и ранги</h3><span class="aside">D → S</span></div><div class="skills">' + skills + '</div>'
+        : '<p class="ib-empty">Навыки этой сферы с рангами от D до S появятся, когда здесь накопятся дела.</p>') +
+      (action
+        ? '<div class="sheet-actions"><button class="btn primary" type="button" data-focus-item="' + action.id + '">Сделать сейчас: ' + esc(action.title.toLowerCase()) + '</button></div>'
+        : '<div class="sheet-actions"><button class="btn ghost" type="button" data-new-item-sphere="' + k + '">Добавить дело в эту сферу</button></div>')
     );
   }
 
@@ -1242,14 +1571,17 @@
     render(true);
   }
 
-  function openClarify(id, from) {
-    const src = (from === 'later' ? S.later : S.inbox).find(function (x) { return x.id === id; });
+  // Разбор пункта из входящих или «Потом», а с from = 'new' — новое дело прямо в план
+  function openClarify(id, from, preset) {
+    const isNew = from === 'new';
+    const src = isNew ? { text: '' } : (from === 'later' ? S.later : S.inbox).find(function (x) { return x.id === id; });
     if (!src) return;
     const st = {
-      sphere: guessSphere(src.text),
+      sphere: (preset && preset.sphere) || guessSphere(src.text),
       mins: 15,
       energy: 'mid',
       block: BLOCKS.indexOf(phase()) >= 0 ? phase() : 'morning',
+      repeat: '0',
     };
     function seg(key, opts) {
       return '<div class="seg wrap" role="group" data-cl-group="' + key + '">' + opts.map(function (o) {
@@ -1258,27 +1590,32 @@
       }).join('') + '</div>';
     }
     openSheet(
-      '<button class="back" type="button" data-ib-back="' + (from === 'later' ? 'later' : 'inbox') + '">' + ic(I.back, '') + 'Назад</button>' +
-      '<p class="eyebrow">Разбор · ' + (from === 'later' ? 'из «Потом»' : 'из входящих') + '</p>' +
-      '<h2>' + esc(src.text) + '</h2>' +
-      '<div class="field"><label for="clTitle">Первое конкретное действие</label>' +
-        '<input id="clTitle" type="text" autocomplete="off" value="' + esc(src.text) + '">' +
-        '<p class="hint">Не «стоматолог», а «позвонить в клинику и записаться на вторник».</p></div>' +
+      (isNew ? '' : '<button class="back" type="button" data-ib-back="' + (from === 'later' ? 'later' : 'inbox') + '">' + ic(I.back, '') + 'Назад</button>') +
+      '<p class="eyebrow">' + (isNew ? 'План дня' : 'Разбор · ' + (from === 'later' ? 'из «Потом»' : 'из входящих')) + '</p>' +
+      '<h2>' + (isNew ? 'Новое дело' : esc(src.text)) + '</h2>' +
+      '<div class="field"><label for="clTitle">' + (isNew ? 'Что сделать' : 'Первое конкретное действие') + '</label>' +
+        '<input id="clTitle" type="text" autocomplete="off" maxlength="80" value="' + esc(src.text) + '" placeholder="Например: 10 минут растяжки">' +
+        '<p class="hint">Конкретное действие: не «здоровье», а «10 минут растяжки после душа».</p></div>' +
+      '<div class="field"><label for="clTrigger">Если — то: когда или после чего</label>' +
+        '<input id="clTrigger" type="text" autocomplete="off" maxlength="80" placeholder="Например: после утреннего кофе">' +
+        '<p class="hint">Привязка к понятному моменту заметно повышает шанс, что дело случится.</p></div>' +
       '<div class="field"><label>Сфера</label>' + seg('sphere', SPHERE_KEYS.map(function (k) { return [k, SPHERES[k].name, true]; })) + '</div>' +
       '<div class="field"><label>Сколько займёт</label>' + seg('mins', TIMES) + '<p class="hint" id="clSize"></p></div>' +
       '<div class="field"><label>Сколько нужно сил</label>' + seg('energy', [['low', 'Мало'], ['mid', 'Норм'], ['high', 'Много']]) + '</div>' +
       '<div class="field"><label>Когда</label>' + seg('block', BLOCKS.map(function (b) { return [b, PHASES[b].label]; })) + '</div>' +
+      '<div class="field"><label>Как часто</label>' + seg('repeat', [['0', 'Один раз'], ['3', '3 раза в неделю'], ['5', '5 раз'], ['7', 'Каждый день']]) + '</div>' +
       '<div class="sheet-actions"><button class="btn primary" type="button" id="clSave">Поставить в план</button></div>',
       function (sheet) {
-        const save_ = $('#clSave', sheet), sizeEl = $('#clSize', sheet), title = $('#clTitle', sheet);
+        const save_ = $('#clSave', sheet), sizeEl = $('#clSize', sheet), title = $('#clTitle', sheet), trig = $('#clTrigger', sheet);
         function sync() {
           sheet.querySelectorAll('[data-cl-k]').forEach(function (b) {
             b.setAttribute('aria-pressed', String(String(st[b.dataset.clK]) === b.dataset.clV));
           });
           const size = sizeForMins(st.mins);
           sizeEl.textContent = 'Размер ' + size + ' · +' + SIZE_XP[size] + ' XP. Его задаёт время, а не выбор.';
-          save_.disabled = !st.sphere || title.value.trim().length < 2;
-          save_.textContent = st.sphere ? 'Поставить в план · ' + PHASES[st.block].label.toLowerCase() : 'Выбери сферу';
+          const ok = !!st.sphere && title.value.trim().length >= 2;
+          save_.disabled = !ok;
+          save_.textContent = !st.sphere ? 'Выбери сферу' : title.value.trim().length < 2 ? 'Напиши, что сделать' : 'Поставить в план · ' + PHASES[st.block].label.toLowerCase();
         }
         sheet.addEventListener('click', function (e) {
           const b = e.target.closest('[data-cl-k]');
@@ -1287,43 +1624,146 @@
           st[k] = k === 'mins' ? +b.dataset.clV : b.dataset.clV;
           sync();
         });
-        title.addEventListener('input', sync);
+        title.addEventListener('input', function () {
+          if (!st.sphere) st.sphere = guessSphere(title.value);
+          sync();
+        });
         save_.addEventListener('click', function () {
-          take(from === 'later' ? S.later : S.inbox, id);
-          const size = sizeForMins(st.mins);
-          S.custom.push({
-            id: 'c' + Date.now(), block: st.block, title: title.value.trim(), sphere: st.sphere, size: size,
-            mins: st.mins, energy: st.energy, trigger: from === 'later' ? 'Достано из «Потом»' : 'Разобрано из входящих', custom: true,
+          const t = title.value.trim();
+          if (!st.sphere || t.length < 2) return;
+          if (!isNew) take(from === 'later' ? S.later : S.inbox, id);
+          addCustom({
+            title: t, sphere: st.sphere, mins: st.mins, energy: st.energy, block: st.block, perWeek: +st.repeat,
+            trigger: trig.value.trim(),
           });
-          const emptied = inboxEmptied();
+          const emptied = !isNew && inboxEmptied();
+          skipped.clear();
           save();
-          toast(emptied ? 'Входящие пусты. Голова свободна · +10 XP' : 'В плане: ' + PHASES[st.block].label.toLowerCase());
-          openInbox(from === 'later' ? 'later' : 'inbox');
+          toast(emptied ? 'Входящие пусты. Голова свободна · +10 XP' : 'В плане: ' + PHASES[st.block].label.toLowerCase() + (+st.repeat ? ', ' + (+st.repeat === 7 ? 'каждый день' : st.repeat + ' раз в неделю') : ''));
+          if (isNew) closeSheet(); else openInbox(from === 'later' ? 'later' : 'inbox');
           render(true);
         });
         sync();
+        if (isNew) setTimeout(function () { title.focus(); }, 350);
+      }
+    );
+  }
+
+  // Карточка дела из плана: подробности и удаление своих дел
+  function openItem(id) {
+    const it = day().find(function (i) { return i.id === id; });
+    if (!it) return;
+    let armed = false;
+    openSheet(
+      '<div class="sheet-head" style="--c: var(--c-' + it.sphere + ')"><span class="glyph">' + ic(SPHERES[it.sphere].icon, '') + '</span>' +
+        '<div><p class="eyebrow">' + SPHERES[it.sphere].name + ' · ' + PHASES[it.block].label + '</p><h2>' + esc(it.title) + '</h2></div></div>' +
+      '<div class="woop" style="--c: var(--c-' + it.sphere + ')">' +
+        (it.trigger ? '<div class="wide"><span>Если — то</span><p>' + esc(it.trigger) + '</p></div>' : '') +
+        '<div><span>Время и опыт</span><p>' + (it.mins ? it.mins + ' мин · ' : '') + it.size + ' +' + SIZE_XP[it.size] + ' XP</p></div>' +
+        '<div><span>Силы</span><p>' + ENERGY[it.energy].label + '</p></div>' +
+        (it.custom ? '<div class="wide"><span>Как часто</span><p>' + repeatText(it) + '</p></div>' : '') +
+      '</div>' +
+      '<div class="sheet-actions">' +
+        '<button class="btn ' + (S.done[id] ? 'ghost' : 'primary') + '" type="button" data-check="' + id + '">' + (S.done[id] ? 'Снять отметку' : 'Отметить сделанным') + '</button>' +
+        (it.custom ? '<button class="btn text danger" type="button" id="itemDel">Удалить из плана</button>' : '<p class="hint">Это дело из примера, его нельзя удалить.</p>') +
+      '</div>',
+      function (sheet) {
+        const del = $('#itemDel', sheet);
+        if (!del) return;
+        del.addEventListener('click', function () {
+          // удаление в два касания вместо системного confirm(), который не везде работает
+          if (!armed) { armed = true; del.textContent = 'Точно удалить? Нажми ещё раз'; return; }
+          if (S.done[id]) ungain(SIZE_XP[it.size], it.sphere);
+          delete S.done[id];
+          S.custom = S.custom.filter(function (c) { return c.id !== id; });
+          S.log = S.log.filter(function (e) { return e.id !== id; });
+          if (focusFirst === id) focusFirst = null;
+          save();
+          closeSheet();
+          toast('Дело удалено из плана');
+          render(true);
+        });
+      }
+    );
+  }
+
+  // Новый квест: цель, препятствие, план «если — то» и шаги
+  function openNewQuest() {
+    const st = { sphere: null };
+    openSheet(
+      '<p class="eyebrow">Сезон ' + seasonNum(SEASON) + ' · ' + SEASON.name + '</p><h2>Новый квест</h2>' +
+      '<div class="field"><label for="qTitle">Квест</label><input id="qTitle" type="text" maxlength="60" autocomplete="off" placeholder="Например: английский от A2 к B1"></div>' +
+      '<div class="field"><label>Сфера</label><div class="seg wrap" role="group">' + SPHERE_KEYS.map(function (k) {
+        return '<button type="button" data-q-sphere="' + k + '" aria-pressed="false" style="--c: var(--c-' + k + ')"><i class="dot"></i>' + SPHERES[k].name + '</button>';
+      }).join('') + '</div></div>' +
+      '<div class="field"><label for="qWish">Чего хочешь</label><input id="qWish" type="text" maxlength="100" autocomplete="off" placeholder="Смотреть сериалы без субтитров"></div>' +
+      '<div class="field"><label for="qOutcome">Как поймёшь, что получилось</label><input id="qOutcome" type="text" maxlength="100" autocomplete="off" placeholder="Понимаю 80% серии на слух"></div>' +
+      '<div class="field"><label for="qObstacle">Что помешает</label><input id="qObstacle" type="text" maxlength="100" autocomplete="off" placeholder="Вечером устаю и залипаю в телефон"></div>' +
+      '<div class="field"><label for="qPlan">План «если — то» на это препятствие</label><input id="qPlan" type="text" maxlength="120" autocomplete="off" placeholder="Если в 21:00 беру телефон → сначала 20 минут английского"></div>' +
+      '<div class="field"><label for="qSteps">Шаги, каждый с новой строки</label><textarea id="qSteps" placeholder="Пройти 20 уроков&#10;Выучить 300 слов&#10;Посмотреть 5 серий без субтитров"></textarea></div>' +
+      '<div class="sheet-actions"><button class="btn primary" type="button" id="qSave" disabled>Начать квест</button></div>',
+      function (sheet) {
+        const btn = $('#qSave', sheet);
+        const val = function (id) { return $('#' + id, sheet).value.trim(); };
+        function steps() { return val('qSteps').split('\n').map(function (x) { return x.trim(); }).filter(function (x) { return x.length > 1; }).slice(0, 12); }
+        function sync() {
+          sheet.querySelectorAll('[data-q-sphere]').forEach(function (b) { b.setAttribute('aria-pressed', String(b.dataset.qSphere === st.sphere)); });
+          const missing = !val('qTitle') ? 'Назови квест' : !st.sphere ? 'Выбери сферу' : !val('qObstacle') || !val('qPlan') ? 'Опиши препятствие и план' : !steps().length ? 'Добавь хотя бы один шаг' : '';
+          btn.disabled = !!missing;
+          btn.textContent = missing || 'Начать квест';
+        }
+        sheet.addEventListener('click', function (e) {
+          const b = e.target.closest('[data-q-sphere]');
+          if (b) { st.sphere = b.dataset.qSphere; sync(); }
+        });
+        sheet.addEventListener('input', sync);
+        btn.addEventListener('click', function () {
+          if (btn.disabled || S.quests.length >= 3) return;
+          S.quests.push({
+            id: 'q' + Date.now(), title: val('qTitle'), sphere: st.sphere,
+            woop: { wish: val('qWish') || '—', outcome: val('qOutcome') || '—', obstacle: val('qObstacle'), plan: val('qPlan') },
+            steps: steps().map(function (t) { return { t: t, f: 0 }; }),
+          });
+          save();
+          closeSheet();
+          toast('Квест начат. Отмечай шаги по мере движения');
+          render(true);
+        });
+        sync();
+        setTimeout(function () { $('#qTitle', sheet).focus(); }, 350);
       }
     );
   }
 
   /* ---------- Возвращение после перерыва ---------- */
-  function showComeback() {
+  let comebackDays = 0;
+  function daysWord(n) {
+    const a = n % 10, b = n % 100;
+    if (a === 1 && b !== 11) return 'день';
+    if (a >= 2 && a <= 4 && (b < 12 || b > 14)) return 'дня';
+    return 'дней';
+  }
+  // days — сколько дней не было; simulate — демо-сценарий, который сам «зарастит» остров
+  function showComeback(days, simulate) {
     closeSheet();
-    ['people', 'spirit', 'health', 'money'].forEach(function (k, i) {
-      const sp = S.spheres[k];
-      sp.vitality = [0.22, 0.3, 0.42, 0.48][i];
-      sp.idle = 12;
-      if (window.Island) Island.setVitality(k, sp.vitality);
-    });
-    save();
+    comebackDays = days;
+    if (simulate) {
+      ['people', 'spirit', 'health', 'money'].forEach(function (k, i) {
+        const sp = S.spheres[k];
+        sp.vitality = [0.22, 0.3, 0.42, 0.48][i];
+        sp.idle = days;
+        if (window.Island) Island.setVitality(k, sp.vitality);
+      });
+      save();
+    }
     const ov = $('#overlayLayer');
     ov.innerHTML = '<div class="comeback sky phase-' + phase() + '">' +
       '<div class="island-host" data-view="overlay">' + fallbackIsland() + '</div>' +
-      '<div class="cb-body"><p class="eyebrow">С возвращением, ' + USER + '</p>' +
-        '<h2>Тебя не было 12 дней. Так бывает</h2>' +
-        '<p>Ничего не сгорело: в этом году у тебя уже 213 дней на Острове. Пара мест немного заросла, одно маленькое действие вернёт им цвет.</p>' +
+      '<div class="cb-body"><p class="eyebrow">С возвращением, ' + esc(S.name) + '</p>' +
+        '<h2>Тебя не было ' + days + ' ' + daysWord(days) + '. Так бывает</h2>' +
+        '<p>Ничего не сгорело: в этом году у тебя ' + yearDays() + ' ' + daysWord(yearDays()) + ' на Острове. Пара мест немного заросла, одно маленькое действие вернёт им цвет.</p>' +
         '<span class="chip xp cb-reward">+50 XP за возвращение</span>' +
-        '<button class="btn primary" type="button" data-action="comeback-start">Начать с 5 минут тишины</button>' +
+        '<button class="btn primary" type="button" data-action="comeback-start">Начать с самого маленького дела</button>' +
         '<button class="btn text" type="button" data-action="comeback-close">Сначала осмотреться</button>' +
       '</div></div>';
     ov.hidden = false;
@@ -1336,13 +1776,101 @@
     ov.innerHTML = '';
     S.comebacks++;
     const r = gain(50, null);
-    S.log.unshift({ id: 'comeback' + Date.now(), t: timeNow(), text: 'Возвращение после 12 дней перерыва', size: null });
+    S.log.unshift({ id: 'comeback' + Date.now(), t: timeNow(), text: 'Возвращение после ' + comebackDays + ' ' + daysWord(comebackDays) + ' перерыва', size: null });
     save();
     skipped.clear();
-    if (start) focusFirst = 'quiet';
+    if (start) {
+      // самое короткое несделанное дело: легче всего начать именно с него
+      const small = day().filter(function (i) { return !S.done[i.id] && i.mins > 0; }).sort(function (a, b) { return a.mins - b.mins; })[0];
+      focusFirst = small ? small.id : null;
+    }
     tab = 'today';
     render(false);
     toast(r.leveled ? 'Новый уровень: ' + S.lvl : '+50 XP за возвращение', r.leveled ? 'level' : '');
+  }
+
+  /* ---------- Первый запуск ---------- */
+  function showOnboarding() {
+    const ov = $('#overlayLayer');
+    ov.innerHTML = '<div class="comeback onboarding sky phase-' + phase() + '">' +
+      '<div class="island-host" data-view="overlay">' + fallbackIsland() + '</div>' +
+      '<form class="cb-body" id="onboard" novalidate>' +
+        '<p class="eyebrow">Добро пожаловать на Остров</p>' +
+        '<h2>Жизнь как долгая игра</h2>' +
+        '<p>Твои дела прокачивают тебя настоящего. Каждые три месяца новый сезон, а остров растёт вместе с тобой годами.</p>' +
+        (brokenData ? '<p class="warn-line">Прошлое сохранение оказалось повреждено. Мы отложили его копию и начинаем заново.</p>' : '') +
+        '<div class="field"><label for="obName">Как тебя зовут?</label>' +
+          '<input id="obName" type="text" maxlength="24" autocomplete="given-name" autocapitalize="words" enterkeyhint="go" placeholder="Имя"></div>' +
+        '<button class="btn primary" type="submit">Начать свой остров</button>' +
+        '<button class="btn text" type="button" data-action="onboard-demo">Сначала посмотреть пример</button>' +
+      '</form></div>';
+    ov.hidden = false;
+    mountIsland();
+    syncThemeColor();
+    $('#onboard').addEventListener('submit', function (e) {
+      e.preventDefault();
+      startFresh('clean', $('#obName').value);
+    });
+  }
+  function startFresh(mode, name) {
+    const n = String(name || '').trim().slice(0, 24) || 'друг';
+    S = mode === 'demo' ? demoState(n) : baseState('clean', n);
+    firstRun = false;
+    brokenData = false;
+    skipped.clear(); focusFirst = null; fitOpen = null; pendingComeback = 0;
+    save();
+    const ov = $('#overlayLayer');
+    ov.hidden = true;
+    ov.innerHTML = '';
+    closeSheet();
+    if (window.Island) {
+      SPHERE_KEYS.forEach(function (k) { Island.setVitality(k, S.spheres[k].vitality, true); });
+      Island.setLevel(S.lvl);
+      Island.setPhase(phase());
+    }
+    tab = 'today';
+    render(false);
+    toast(mode === 'demo' ? 'Это пример: год на Острове. Свой остров начнёшь в настройках' : 'Твой остров создан. Начни с одного маленького дела');
+  }
+
+  // Подтверждение прямо на странице: confirm() в установленном приложении ненадёжен
+  function confirmReset(mode) {
+    const clean = mode === 'clean';
+    openSheet(
+      '<h2>' + (clean ? 'Начать с чистого листа?' : 'Загрузить пример?') + '</h2>' +
+      '<p class="lead">' + (clean
+        ? 'Уровень, дела, квесты, входящие и летопись удалятся. Останется пустой остров первого уровня.'
+        : 'Твой прогресс заменится примером: год на Острове, уровень 12, готовые квесты и привычки.') +
+      ' Это нельзя отменить.</p>' +
+      '<div class="field"><label for="resetName">Имя</label><input id="resetName" type="text" maxlength="24" autocomplete="given-name" value="' + esc(S.name) + '"></div>' +
+      '<div class="sheet-actions">' +
+        '<button class="btn primary danger-fill" type="button" id="resetGo">' + (clean ? 'Удалить и начать заново' : 'Заменить примером') + '</button>' +
+        '<button class="btn ghost" type="button" data-action="close">Отмена</button>' +
+      '</div>',
+      function (sheet) {
+        $('#resetGo', sheet).addEventListener('click', function () { startFresh(mode, $('#resetName', sheet).value); });
+      }
+    );
+  }
+  function openRename() {
+    openSheet(
+      '<h2>Как тебя зовут?</h2>' +
+      '<form class="add-row" id="renameForm"><label class="sr" for="renameInput">Имя</label>' +
+        '<input id="renameInput" type="text" maxlength="24" autocomplete="given-name" value="' + esc(S.name) + '">' +
+        '<button class="btn primary small" type="submit">Сохранить</button></form>',
+      function (sheet) {
+        $('#renameForm', sheet).addEventListener('submit', function (e) {
+          e.preventDefault();
+          const v = $('#renameInput', sheet).value.trim().slice(0, 24);
+          if (!v) return;
+          S.name = v;
+          save();
+          closeSheet();
+          render(true);
+        });
+        setTimeout(function () { $('#renameInput', sheet).select(); }, 350);
+      }
+    );
   }
 
   /* ---------- Панели: заметки и демо ---------- */
@@ -1361,15 +1889,21 @@
   }
   function demoHtml() {
     const opts = [['auto', 'Авто'], ['morning', 'Утро'], ['day', 'День'], ['evening', 'Вечер'], ['night', 'Ночь']];
-    return '<h2>Демо</h2>' +
-      '<div class="demo-group"><p>Время суток</p><div class="seg">' + opts.map(function (o) {
+    return '<h2>Настройки</h2>' +
+      '<div class="demo-group"><p>Ты</p><div class="demo-actions">' +
+        '<button class="btn ghost" type="button" data-action="rename">Имя: ' + esc(S.name) + '</button></div></div>' +
+      '<div class="demo-group"><p>Данные · ' + (isDemo() ? 'сейчас открыт пример' : 'твой остров') + '</p><div class="demo-actions">' +
+        '<button class="btn ghost" type="button" data-action="reset-clean">Начать с чистого листа</button>' +
+        '<button class="btn ghost" type="button" data-action="reset-demo">' + (isDemo() ? 'Сбросить пример' : 'Посмотреть пример') + '</button>' +
+      '</div></div>' +
+      '<div class="demo-group"><p>Время суток для просмотра</p><div class="seg">' + opts.map(function (o) {
         return '<button type="button" data-phase="' + o[0] + '" aria-pressed="' + (S.phase === o[0]) + '">' + o[1] + '</button>';
       }).join('') + '</div></div>' +
-      '<div class="demo-group"><p>Сценарии</p><div class="demo-actions">' +
-        '<button class="btn ghost" type="button" data-action="comeback">Возвращение после перерыва</button>' +
-        '<button class="btn ghost" type="button" data-action="reset">Сбросить прогресс</button>' +
-      '</div></div>' +
-      '<p class="demo-tip">Нажми «Силы» и «Время» в карточке «Сейчас»: она подберёт дело под них. Разбери входящие ниже. Отметь «Позвонить маме», чтобы ожил дом у костра.</p>';
+      (isDemo()
+        ? '<div class="demo-group"><p>Сценарии</p><div class="demo-actions">' +
+            '<button class="btn ghost" type="button" data-action="comeback">Возвращение после перерыва</button></div></div>' +
+          '<p class="demo-tip">Нажми «Силы» и «Время» в карточке «Сейчас»: она подберёт дело под них. Разбери входящие ниже. Отметь «Позвонить маме», чтобы ожил дом у костра.</p>'
+        : '');
   }
   function renderDemo() { $('#demo').innerHTML = demoHtml() + installDemoGroup(); }
 
@@ -1477,12 +2011,12 @@
 
   /* ---------- Обратная связь ---------- */
   let toastTimer = null;
-  function toast(msg, kind) {
+  function toast(msg, kind, ms) {
     const el = $('#toast');
     el.textContent = msg;
     el.className = 'toast show' + (kind ? ' ' + kind : '');
     clearTimeout(toastTimer);
-    toastTimer = setTimeout(function () { el.className = 'toast'; }, 2800);
+    toastTimer = setTimeout(function () { el.className = 'toast'; }, ms || 2800);
   }
   function xpFloat(anchor, text) { xpFloatAt(anchor, text); }
   function xpFloatAt(anchor, text) {
@@ -1509,7 +2043,17 @@
     const d = el.dataset;
     if (d.tab) return setTab(d.tab);
     if (d.tabGo) return setTab(d.tabGo);
-    if (d.check) return toggleItem(d.check, el);
+    if (d.check) { if (el.closest('.sheet')) closeSheet(); return toggleItem(d.check, el.closest('.sheet') ? null : el); }
+    if (d.item) return openItem(d.item);
+    if (d.starter) {
+      const st = STARTERS[+d.starter];
+      if (!st || S.custom.some(function (c) { return c.title === st.title; })) return;
+      addCustom(st);
+      save();
+      toast('Привычка в плане: ' + st.title.toLowerCase() + ', ' + (st.perWeek >= 7 ? 'каждый день' : st.perWeek + ' раз в неделю'));
+      return render(true);
+    }
+    if (d.newItemSphere) return openClarify(null, 'new', { sphere: d.newItemSphere });
     if (d.start) return openFocus(d.start);
     if (d.reflect) return openReflect(d.reflect);
     if (d.skip) { skipped.add(d.skip); return render(true); }
@@ -1557,8 +2101,14 @@
       case 'fit-reset':
         S.fit = { energy: null, time: null }; fitOpen = null; save();
         return render(true);
-      case 'demo': return openSheet('<div class="demo-sheet">' + demoHtml() + '</div>');
-      case 'comeback': return showComeback();
+      case 'demo': return openSheet('<div class="demo-sheet">' + demoHtml() + installDemoGroup() + '</div>');
+      case 'comeback': return showComeback(12, true);
+      case 'new-item': return openClarify(null, 'new');
+      case 'new-quest': return openNewQuest();
+      case 'rename': return openRename();
+      case 'reset-clean': return confirmReset('clean');
+      case 'reset-demo': return confirmReset('demo');
+      case 'onboard-demo': return startFresh('demo', ($('#obName') || {}).value);
       case 'comeback-start': return closeComeback(true);
       case 'comeback-close': return closeComeback(false);
       case 'unskip': skipped.clear(); return render(true);
@@ -1567,18 +2117,6 @@
         S.cheered = true; save();
         toast('Ерлан и Аружан получили твою поддержку');
         return render(true);
-      case 'reset':
-        S = fresh(); save();
-        skipped.clear(); focusFirst = null; fitOpen = null;
-        closeSheet();
-        $('#overlayLayer').hidden = true;
-        if (window.Island) {
-          SPHERE_KEYS.forEach(function (k) { Island.setVitality(k, S.spheres[k].vitality); });
-          Island.setLevel(S.lvl);
-          Island.setPhase(phase());
-        }
-        toast('Прогресс сброшен к примеру');
-        return render(false);
     }
   });
   document.addEventListener('keydown', function (e) {
@@ -1607,17 +2145,40 @@
   bootIsland();
   if (isStandalone() && navigator.storage && navigator.storage.persist) navigator.storage.persist();
 
+  if (firstRun) showOnboarding();
+  else if (pendingComeback) showComeback(pendingComeback, false);
+
   // Ярлыки с иконки приложения: ?action=capture или ?action=inbox
   (function () {
     const action = new URLSearchParams(location.search).get('action');
-    if (action === 'capture') openCapture('inbox');
-    else if (action === 'inbox') openInbox('inbox');
-    if (action && history.replaceState) history.replaceState(null, '', location.pathname);
+    if (!firstRun && !pendingComeback) {
+      if (action === 'capture') openCapture('inbox');
+      else if (action === 'inbox') openInbox('inbox');
+    }
+    if (action && history.replaceState) history.replaceState(null, '', location.pathname + location.search.replace(/[?&]action=[^&]*/, '').replace(/^&/, '?'));
   })();
 
+  // Две вкладки с приложением: изменения из другой сразу видны здесь
+  window.addEventListener('storage', function (e) {
+    if (e.key !== KEY || !e.newValue || firstRun) return;
+    try {
+      S = rollover(normalize(JSON.parse(e.newValue)));
+      if (window.Island) {
+        SPHERE_KEYS.forEach(function (k) { Island.setVitality(k, S.spheres[k].vitality); });
+        Island.setLevel(S.lvl);
+      }
+      if ($('#sheetLayer').hidden) render(true);
+    } catch (err) { /* чужая запись битая: оставляем своё состояние */ }
+  });
+
+  // Наступил новый день, пока приложение открыто: перезагружаемся, но не посреди ввода
+  function dayChanged() { return !DATE_OVERRIDE && new Date().toDateString() !== NOW0.toDateString(); }
+  function busy() { return !$('#sheetLayer').hidden || !$('#overlayLayer').hidden; }
   // в режиме «Авто» время суток обновляется само
   function tick() {
-    if (S.phase !== 'auto' || !$('#sheetLayer').hidden) return;
+    if (busy()) return;
+    if (dayChanged()) { location.reload(); return; }
+    if (S.phase !== 'auto') return;
     if (window.Island) Island.setPhase(phase());
     if (tab === 'today') render(true);
     else syncThemeColor();
@@ -1626,8 +2187,6 @@
   // Установленное приложение может висеть в памяти несколько дней: после пробуждения
   // на новом дне перезагружаемся, на том же дне обновляем время суток.
   document.addEventListener('visibilitychange', function () {
-    if (document.hidden) return;
-    if (new Date().toDateString() !== NOW0.toDateString()) location.reload();
-    else tick();
+    if (!document.hidden) tick();
   });
 })();
