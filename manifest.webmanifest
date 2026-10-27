@@ -1,0 +1,25 @@
+{
+  "id": "./",
+  "name": "Остров: жизнь как долгая игра",
+  "short_name": "Остров",
+  "description": "Сезоны, квесты и 3D-остров, который растёт вместе с тобой годами.",
+  "lang": "ru",
+  "dir": "ltr",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#2C3774",
+  "theme_color": "#0D1118",
+  "categories": ["lifestyle", "productivity", "health"],
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" },
+    { "src": "icons/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ],
+  "shortcuts": [
+    { "name": "Записать мысль", "short_name": "Записать", "url": "./?action=capture", "icons": [{ "src": "icons/icon-192.png", "sizes": "192x192" }] },
+    { "name": "Входящие", "url": "./?action=inbox", "icons": [{ "src": "icons/icon-192.png", "sizes": "192x192" }] }
+  ]
+}

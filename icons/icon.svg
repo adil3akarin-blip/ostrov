@@ -1,0 +1,65 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2C3774"/>
+      <stop offset=".58" stop-color="#985C8A"/>
+      <stop offset="1" stop-color="#EFA06C"/>
+    </linearGradient>
+    <linearGradient id="fall" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#C8F1FA"/>
+      <stop offset="1" stop-color="#A6E6F4" stop-opacity="0"/>
+    </linearGradient>
+    <radialGradient id="glow" cx=".5" cy=".5" r=".5">
+      <stop offset="0" stop-color="#FFE3A3" stop-opacity=".55"/>
+      <stop offset="1" stop-color="#FFE3A3" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <rect width="1024" height="1024" fill="url(#sky)"/>
+  <g fill="#fff">
+    <circle cx="210" cy="190" r="5" opacity=".85"/>
+    <circle cx="330" cy="120" r="3.5" opacity=".7"/>
+    <circle cx="700" cy="150" r="4.5" opacity=".8"/>
+    <circle cx="820" cy="250" r="3" opacity=".6"/>
+    <circle cx="560" cy="90" r="3" opacity=".6"/>
+  </g>
+  <circle cx="512" cy="430" r="300" fill="url(#glow)"/>
+
+  <!-- скалистое дно -->
+  <polygon points="252,560 400,592 520,812" fill="#7A6658"/>
+  <polygon points="400,592 512,602 520,812" fill="#6A5A55"/>
+  <polygon points="512,602 652,590 520,812" fill="#5E5368"/>
+  <polygon points="652,590 778,560 520,812" fill="#524F68"/>
+  <polygon points="606,770 636,754 654,780 624,796" fill="#5E5368"/>
+
+  <!-- земля и трава -->
+  <polygon points="236,522 322,548 512,562 702,548 790,524 776,562 652,590 512,602 400,592 252,560" fill="#8A6A4A"/>
+  <polygon points="236,522 330,488 470,478 612,482 742,494 790,524 702,548 512,562 322,548" fill="#79B45F"/>
+  <polygon points="236,522 330,488 470,478 420,530 322,548" fill="#8CC46B"/>
+  <polygon points="612,482 742,494 790,524 702,548 640,520" fill="#6CA555"/>
+
+  <!-- водопад -->
+  <rect x="318" y="546" width="20" height="170" rx="6" fill="url(#fall)"/>
+  <ellipse cx="350" cy="536" rx="46" ry="12" fill="#5EC4DA"/>
+
+  <!-- дом у костра -->
+  <rect x="618" y="468" width="74" height="54" fill="#F2E4D2"/>
+  <polygon points="604,472 655,426 706,472" fill="#CF4F74"/>
+  <rect x="640" y="486" width="18" height="16" rx="2" fill="#FFD27A"/>
+
+  <!-- дерево в центре -->
+  <rect x="500" y="404" width="26" height="140" rx="6" fill="#6E4B31"/>
+  <g>
+    <polygon points="512,250 616,310 512,380" fill="#77C063"/>
+    <polygon points="616,310 616,430 512,380" fill="#5FAE58"/>
+    <polygon points="616,430 512,490 512,380" fill="#4E9B4F"/>
+    <polygon points="512,490 408,430 512,380" fill="#5FAE58"/>
+    <polygon points="408,430 408,310 512,380" fill="#4E9B4F"/>
+    <polygon points="408,310 512,250 512,380" fill="#8CC46B"/>
+  </g>
+  <g fill="#FFD36B">
+    <circle cx="566" cy="352" r="11"/>
+    <circle cx="456" cy="404" r="10"/>
+    <circle cx="560" cy="446" r="9"/>
+  </g>
+</svg>
